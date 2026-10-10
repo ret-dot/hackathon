@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fingerprint failed? Issue now, reconcile later</title>
+<style>
+:root{--bg:#eceff3;--card:#fbfcfd;--ink:#14202b;--mut:#5d6b78;--acc:#1f5f8b;--ok:#2f7d4f;--warn:#a96a00;--bad:#b3382c;--line:#d6dce3}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1200px;margin:auto;padding:22px 18px 60px}
+h1{font:600 28px/1.2 Charter,Georgia,serif;margin:0 0 6px;max-width:30ch}h2{font:600 16px Charter,Georgia,serif;margin:0 0 10px}
+.sub{color:var(--mut);margin:0 0 18px;max-width:75ch}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;min-width:0}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:14px}
+.facts div{background:var(--card);padding:10px 12px;font-size:12px;color:var(--mut)}.facts b{display:block;font:600 22px Charter,Georgia,serif;color:var(--ink)}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
+select,input,button{font:inherit;padding:6px 9px;border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--ink)}
+button{cursor:pointer;background:var(--acc);color:#fff;border-color:var(--acc)}button.g{background:#fff;color:var(--ink)}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.ladder{display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center}
+.fsm{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}.n{padding:7px 10px;border:1.5px solid var(--line);border-radius:4px;font-weight:600;font-size:12px;background:#fff;color:var(--mut)}
+.n.on{border-color:var(--acc);background:#e2eef6;color:var(--acc)}.n.bad.on{border-color:var(--bad);background:#f7e4e1;color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;font-weight:400}th{color:var(--mut)}
+.pill{padding:1px 7px;border-radius:99px;font-size:11px;font-weight:600;background:#e6e9ed}
+.RECONCILED{background:#dcefe3;color:var(--ok)}.PROVISIONAL,.PROVISIONAL_ISSUE{background:#f8e8c8;color:var(--warn)}.REJECTED,.REFUSED,.FAIL_REASON{background:#f6dcd8;color:var(--bad)}.FLAGGED{background:#efe2f7;color:#6b3a8a}
+.bar{height:7px;background:#e3e7ec;border-radius:4px;overflow:hidden;margin:3px 0}.bar i{display:block;height:100%;background:var(--acc)}.bar.r i{background:var(--bad)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}.msg{margin:10px 0 0;color:var(--warn);min-height:20px}
+.log{max-height:260px;overflow:auto}pre{margin:6px 0 0;padding:8px;background:#eef1f4;border-radius:4px;font-size:11px;overflow:auto}.mut{color:var(--mut);font-size:12px}
+input[type=range]{width:100%;padding:0}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .3s}}
+</style></head><body><main>
+<h1>When the fingerprint fails, issue now and reconcile later</h1>
+<p class="sub">A working model of the offline-first point of sale. Each transaction runs a state machine, the shop issues grain against a locally signed Ed25519 token, and the server reconciles it later. Every failure becomes a structured event.</p>
+<div class="facts">
+<div><b>150 → 40-50</b>people per hour with the device, one Delhi shopkeeper (2018)</div>
+<div><b>56%</b>of 93 lakh Kerala card holders served, Dec 2022</div>
+<div><b>27.7%</b>of Goa transactions done by mid-April 2026</div>
+<div><b>78.2%</b>of fertiliser authentication failures were fingerprint mismatch (2019)</div>
+<div><b>Aug 2026</b>Centre allowed one-time relaxation in MP moong and urad procurement</div></div>
+<p id="msg" class="msg" role="status"></p>
+
+<div class="grid">
+<section class="card"><h2>Shop terminal</h2>
+<div class="row"><div><label for="shop">Shop</label><select id="shop"></select></div><div><label for="card">Ration card</label><select id="card"></select></div>
+<div><label for="member">Member</label><select id="member"></select></div><div><label for="kg">Grain (kg)</label><input id="kg" type="number" min="1" value="5" style="width:70px"></div></div>
+<label>Authentication ladder: pick what happens at each step</label><div class="ladder" id="ladder"></div>
+<div class="row" style="margin-top:12px"><button onclick="tx()">Issue grain</button>
+<button class="g" onclick="preset({FINGERPRINT:'OK'})">Clean success</button>
+<button class="g" onclick="preset({FINGERPRINT:'FP_MISMATCH',OTP:'OK'})">Fingerprint fails, OTP works</button>
+<button class="g" onclick="preset({FINGERPRINT:'FP_LOW_QUALITY',OTP:'OTP_NOT_DELIVERED',IRIS:'IRIS_NO_MATCH'})">Everything fails</button></div>
+<p class="mut">Take a shop offline in the Devices panel and every authentication step fails with SERVER_DOWN. The queue still moves, on a provisional token.</p></section>
+
+<section class="card"><h2>State machine for the last transaction</h2><div class="fsm" id="fsm"></div><div id="lastTx" class="mut">No transaction yet.</div>
+<pre id="tok" hidden></pre></section></div>
+
+<section class="card" style="margin-bottom:14px"><h2>Devices and sync</h2><div class="grid" id="devices" style="margin:0"></div></section>
+
+<div class="grid">
+<section class="card"><h2>Attack lab</h2><p class="mut">Fraud is stopped by signatures, counters, quotas and caps, not by blocking the queue.</p>
+<div class="row"><select id="ashop"></select></div>
+<div class="row" style="margin-top:8px"><button class="g" onclick="atk('replay')">Replay a token</button><button class="g" onclick="atk('forge')">Forge the quantity</button><button class="g" onclick="atk('rollback')">Roll back the counter</button><button class="g" onclick="atk('doubledip')">Double-dip at two shops</button></div>
+<p class="mut">Replay is caught by the nonce. A forged quantity breaks the signature. A rolled-back counter breaks monotonic order. The double-dip is flagged because both offline shops see the same quota. The per-card quota bounds how much any offline shop can issue, and the signed lot cap bounds the shop (try 60+ kg).</p>
+<button class="g" onclick="api('/api/reset',{})">Reset demo</button></section>
+<section class="card"><h2>Ration cards (central)</h2><table id="cards"></table>
+<h2 style="margin-top:14px">Measured failure rates</h2><div id="metrics"></div></section></div>
+
+<div class="grid">
+<section class="card"><h2>Event log</h2><div class="log"><table id="log"></table></div></section>
+<section class="card"><h2>What the lost throughput costs</h2>
+<label>Without device: people per hour <b id="v1"></b></label><input id="s1" type="range" min="50" max="200" value="150">
+<label>With failing device: people per hour <b id="v2"></b></label><input id="s2" type="range" min="10" max="150" value="45">
+<label>Shop hours <b id="v3"></b></label><input id="s3" type="range" min="2" max="10" value="6">
+<label>Shops <b id="v4"></b></label><input id="s4" type="range" min="100" max="20000" step="100" value="1000">
+<p id="calc" style="font:600 16px Charter,Georgia,serif;margin:10px 0 0"></p><p class="mut">Provisional tokens restore the faster rate because failures no longer block the next person.</p></section></div>
+
+<script>
+const FAIL={FINGERPRINT:['FP_MISMATCH','FP_LOW_QUALITY','DEVICE_TIMEOUT'],OTP:['OTP_NOT_DELIVERED','SERVER_DOWN'],IRIS:['IRIS_NO_MATCH','DEVICE_TIMEOUT'],FACE:['FACE_NO_MATCH']};
+const NODES=['ATTEMPT','FAIL_REASON','FALLBACK_AUTH','PROVISIONAL_ISSUE','RECONCILED'];
+let S=null;const $=id=>document.getElementById(id);
+async function api(u,b){const r=await fetch(u,{method:b?'POST':'GET',body:b?JSON.stringify(b):undefined});const j=await r.json();
+ S=b?j.state:j;$('msg').textContent=j.error||j.msg||(j.synced!==undefined?j.synced+' token(s) reconciled.':'');render();return j}
+$('ladder').innerHTML=Object.keys(FAIL).map(m=>`<span>${m}</span><select id="a_${m}"><option value="">skip</option><option>OK</option>${FAIL[m].map(f=>`<option>${f}</option>`).join('')}</select>`).join('');
+function preset(o){Object.keys(FAIL).forEach(m=>$('a_'+m).value=o[m]||'')}preset({FINGERPRINT:'FP_MISMATCH',OTP:'OK'});
+function tx(){const attempts=Object.keys(FAIL).map(m=>({method:m,result:$('a_'+m).value})).filter(a=>a.result);
+ api('/api/tx',{shopId:$('shop').value,cardId:$('card').value,member:$('member').value,kg:$('kg').value,attempts})}
+const atk=t=>api('/api/attack',{type:t,shopId:$('ashop').value});
+function members(){const n=S.cards[$('card').value].members;$('member').innerHTML=Array.from({length:n},(_,i)=>`<option>Member ${i+1}</option>`).join('')}
+$('card').onchange=members;
+function render(){
+ if(!$('shop').options.length){const o=S.shops.map(s=>`<option value="${s.id}">${s.id} ${s.name}</option>`).join('');$('shop').innerHTML=o;$('ashop').innerHTML=o;
+  $('card').innerHTML=Object.values(S.cards).map(c=>`<option value="${c.id}">${c.id} ${c.head}</option>`).join('');members()}
+ const on=new Set(S.last?S.last.path:[]);
+ $('fsm').innerHTML=NODES.map(n=>`<span class="n ${n==='FAIL_REASON'?'bad':''} ${on.has(n)?'on':''}">${n}</span>`).join('<span>→</span>');
+ const L=S.last;$('lastTx').innerHTML=L?`<b style="color:var(--ink)">${L.id}</b> at ${L.shopId}, card ${L.cardId}, ${L.kg} kg. Path: ${L.path.join(' → ')}. Auth: ${L.auth}. Time at the counter: ${L.secs} s. Status: <span class="pill ${L.final}">${L.final||'-'}</span>${L.why?' '+L.why:''}`:'No transaction yet.';
+ const q=L&&S.shops.flatMap(s=>s.queue).find(x=>x.txId===L.id);$('tok').hidden=!q;if(q)$('tok').textContent='Signed token (Ed25519)\n'+JSON.stringify(q,null,1);
+ $('devices').innerHTML=S.shops.map(s=>`<div class="card"><div class="row" style="justify-content:space-between"><b><span class="dot" style="background:${s.online?'var(--ok)':'var(--bad)'}"></span>${s.id} ${s.name}</b>
+ <span class="row"><button class="g" onclick="api('/api/online',{shopId:'${s.id}',online:${!s.online}})">${s.online?'Go offline':'Go online'}</button><button onclick="api('/api/sync',{shopId:'${s.id}'})">Sync</button></span></div>
+ <p class="mut">Public key …${s.pub}. Counter ${s.counter}. Lot cap ${s.capOk?'signature valid':'INVALID'} (${s.lotId}).</p>
+ <div class="bar ${s.issued>=s.capKg?'r':''}"><i style="width:${Math.min(100,s.issued/s.capKg*100)}%"></i></div><div class="mut">Device issued ${s.issued} of ${s.capKg} kg. Central has reconciled ${s.lotCentral} kg.</div>
+ <table><tr><th>ctr</th><th>card</th><th>kg</th><th>auth</th><th>status</th></tr>${s.queue.map(x=>`<tr><td>${x.counter}</td><td>${x.cardId}</td><td>${x.kg}</td><td>${x.auth}</td><td><span class="pill ${x.status}">${x.status}</span> ${x.why||''}${x.attack?' (attack: '+x.attack+')':''}</td></tr>`).join('')}</table></div>`).join('');
+ $('cards').innerHTML='<tr><th>card</th><th>head</th><th>members</th><th>reconciled / quota</th></tr>'+Object.values(S.cards).map(c=>`<tr><td>${c.id}</td><td>${c.head}</td><td>${c.members}</td><td>${c.used} / ${c.quota} kg<div class="bar"><i style="width:${Math.min(100,c.used/c.quota*100)}%"></i></div></td></tr>`).join('');
+ const m=S.metrics,mx=Math.max(1,...Object.values(m.byReason));
+ $('metrics').innerHTML=m.attempts?`<p>Overall failure rate: <b>${Math.round(m.fails/m.attempts*100)}%</b> of ${m.attempts} attempts. Average ${m.avgSecs} s per person, about ${m.avgSecs?Math.round(3600/m.avgSecs):0} per hour.</p>`
+  +Object.entries(m.byMethod).map(([k,v])=>`<div class="mut">${k}: ${v.f} of ${v.n} failed</div>`).join('')
+  +Object.entries(m.byReason).map(([k,v])=>`<div class="mut">${k} (${v})</div><div class="bar r"><i style="width:${v/mx*100}%"></i></div>`).join('')
+  +`<p class="mut">Outcomes: ${Object.entries(m.byFinal).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join(' ')||'none yet'}. Ledger entries: ${m.ledger}.</p>`:'<p class="mut">No attempts yet. Failures are recorded here with a reason, which the state has never had.</p>';
+ $('log').innerHTML='<tr><th>s</th><th>shop</th><th>tx</th><th>state</th><th>reason</th></tr>'+S.events.map(e=>`<tr><td>${e.t}</td><td>${e.shopId}</td><td>${e.txId}</td><td><span class="pill ${e.state}">${e.state}</span></td><td>${e.reason||e.detail}</td></tr>`).join('')}
+function calc(){const [a,b,h,n]=[1,2,3,4].map(i=>+$('s'+i).value);[a,b,h,n].forEach((v,i)=>$('v'+(i+1)).textContent=v.toLocaleString());
+ $('calc').textContent=`${a*h} served per shop becomes ${b*h}. Across ${n.toLocaleString()} shops that is ${((a-b)*h*n).toLocaleString()} service slots lost each day.`}
+[1,2,3,4].forEach(i=>$('s'+i).oninput=calc);calc();api('/api/state');
+</script></main></body></html>
